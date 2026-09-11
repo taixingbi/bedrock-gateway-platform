@@ -4,9 +4,10 @@ Multi-tenant Enterprise LLM Gateway on AWS Bedrock. Building toward the
 V1 Enterprise MVP (M0–M6) in `docs/ROADMAP.md`. Currently: **M0**
 (`POST /v1/chat` → Bedrock Converse API → response, structured JSON
 telemetry), **M1** (OIDC/JWT auth, tenant identity derived only from
-verified token claims, RBAC), and **M2** (tenant policy plane: state/kill
+verified token claims, RBAC), **M2** (tenant policy plane: state/kill
 switch, policy epoch, push-invalidated + bounded-TTL policy cache,
-per-tenant rate limit, model allowlist, admin state API).
+per-tenant rate limit, model allowlist, admin state API), and **M3**
+(input/output guardrails with fail-closed behavior on timeout/error).
 
 ## Quickstart (local)
 
@@ -65,20 +66,23 @@ curl -s -X PUT http://localhost:8080/v1/admin/tenants/finance/state \
 
 No real AWS calls, no network — a fake `ConverseClient` stands in for
 Bedrock (see `services/gateway/tests/fakes.py`), tests mint their own
-locally-signed JWTs (see `services/gateway/tests/auth_fixtures.py`), and
+locally-signed JWTs (see `services/gateway/tests/auth_fixtures.py`),
 policy/rate-limit tests use a `FakeClock` (see
-`services/gateway/tests/fake_clock.py`) instead of real `time.sleep()`.
+`services/gateway/tests/fake_clock.py`) instead of real `time.sleep()`,
+and guardrail failure/timeout scenarios use a `FakeGuardrailClient` (see
+`services/gateway/tests/fake_guardrail.py`) instead of racing a real
+clock against a real deadline.
 
 ```bash
 python -m unittest discover -s services/gateway/tests -t .
 ```
 
-46 tests: M0/M1 coverage plus M2 — kill switch blocks a
-SUSPENDED/EMERGENCY_BLOCK tenant before Bedrock is ever called, an
-unprovisioned tenant is rejected the same way, per-tenant rate limiting
-(and that tenant A's burst never throttles tenant B), the policy TTL
-bound holds even without a push, and an admin state change propagates to
-the very next request instead of waiting out the TTL.
+68 tests: M0/M1/M2 coverage plus M3 — PII/prompt-injection patterns are
+blocked before Bedrock is ever called, a blocked model response never
+reaches the client, a STRICT-safety-class tenant fails closed (503) when
+the guardrail backend is unavailable rather than letting the request
+through, and a LOW_RISK tenant that explicitly opted in degrades
+gracefully instead of failing.
 
 ## Docker
 
@@ -102,12 +106,13 @@ services/gateway/
   api/          # request/response schemas + route handlers (routes.py public, admin_routes.py admin)
   auth/         # JWT verification, identity, RBAC (M1)
   policy/       # tenant policy model/store/cache, rate limiter (M2)
+  guardrails/   # GuardrailClient seam, basic regex impl, fail-closed enforcement (M3)
   inference/    # Bedrock Converse client (retry/backoff, no boto3 at import time)
   telemetry/    # structured JSON logging + request_id/duration_ms middleware
   tests/        # unit tests + fakes/fixtures (no AWS, no network needed)
   config.py     # env -> Settings (the only module that reads os.environ)
   main.py       # app factory / entrypoint
-  pipeline.py   # request pipeline stages (auth + policy so far; guardrails/cache/router land in M3-M4)
+  pipeline.py   # request pipeline stages (auth/policy/guardrails so far; cache/router land in M4)
 scripts/
   generate_dev_token.py   # mint a local dev JWT for curl-testing
 policies/
@@ -117,8 +122,9 @@ docs/
   DESIGN-NOTES.md   # deviations from the plan and why
 ```
 
-## What's next (M3)
+## What's next (M4)
 
-Input/output guardrails with fail-closed behavior: a guardrail
-timeout/error on a STRICT or STANDARD safety class must reject the
-request rather than let it reach the model — see `docs/ROADMAP.md`.
+Gateway reliability: policy-aware response cache (keyed so a
+`policy_epoch` bump invalidates it automatically), a circuit breaker +
+certified fallback across a route set, and SSE streaming with
+client-disconnect cancellation — see `docs/ROADMAP.md`.
