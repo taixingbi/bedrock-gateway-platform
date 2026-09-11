@@ -1,18 +1,19 @@
 # bedrock-gateway-platform
 
-Multi-tenant Enterprise LLM Gateway on AWS Bedrock. Building toward the
-V1 Enterprise MVP (M0–M6) in `docs/ROADMAP.md`. Currently: **M0**
-(`POST /v1/chat` → Bedrock Converse API → response, structured JSON
-telemetry), **M1** (OIDC/JWT auth, tenant identity derived only from
-verified token claims, RBAC), **M2** (tenant policy plane: state/kill
-switch, policy epoch, push-invalidated + bounded-TTL policy cache,
-per-tenant rate limit, model allowlist, admin state API), **M3**
-(input/output guardrails with fail-closed behavior on timeout/error),
-**M4** (policy-aware response cache, per-model circuit breaker, certified
-fallback routing, SSE streaming with client-disconnect cancellation), and
-**M5** (OpenTelemetry tracing, per-request cost estimate and SLO breach
-flag, opt-in redacted debug capture kept separate from operational
-telemetry).
+Multi-tenant Enterprise LLM Gateway on AWS Bedrock. **V1 (M0–M6) is
+complete** — see `docs/ROADMAP.md` for the full milestone-by-milestone
+breakdown and the plan's acceptance-criteria checklist:
+
+- **M0** — `POST /v1/chat` → Bedrock Converse API → response, structured JSON telemetry
+- **M1** — OIDC/JWT auth; tenant identity derived only from verified token claims; RBAC
+- **M2** — tenant policy plane: state/kill switch, policy epoch, push-invalidated + bounded-TTL policy cache, per-tenant rate limit, model allowlist, admin state API
+- **M3** — input/output guardrails with fail-closed behavior on timeout/error
+- **M4** — policy-aware response cache, per-model circuit breaker, certified fallback routing, SSE streaming with client-disconnect cancellation
+- **M5** — OpenTelemetry tracing, per-request cost estimate and SLO breach flag, opt-in redacted debug capture kept separate from operational telemetry
+- **M6** — load/chaos scenarios (circuit breaker under load, tenant isolation, kill-switch/policy-update propagation, guardrail fail-closed) — all automated and CI-runnable, see `docs/LOAD_TESTING.md`
+
+M7 (Async), M8 (FinOps), M9 (Model Lifecycle), and M10 (Portal) are the
+rest of the platform in `plan.md` and are not started.
 
 ## Quickstart (local)
 
@@ -104,6 +105,29 @@ installs a no-op global tracer before any test imports `create_app()`, so
 you won't see the console span exporter's output during the suite. Run
 the server for real (`python -m services.gateway.main`) to see it.
 
+## Load / chaos testing (M6)
+
+```bash
+python -m unittest discover -s loadtests -t .
+```
+
+5 scenarios, each firing a burst of concurrent requests at the app over
+`httpx.ASGITransport` (no live server needed) with fault-injecting fakes
+distinct from the unit-test ones (`loadtests/fault_injection.py` — these
+inject faults across *many* concurrent calls with thread-safe counters):
+circuit breaker stops a retry storm under throttling, tenant noisy-
+neighbor isolation holds under simultaneous bursts, kill-switch blocks
+the very next request after an admin flip, a policy_epoch bump
+invalidates the cache under concurrent read/write races, and a STRICT
+tenant fails closed for every one of many concurrent requests when its
+guardrail is down.
+
+Each scenario also has a human-run `locustfile.py` for real HTTP
+throughput/latency against a live gateway process — including,
+deliberately by hand, against real Bedrock if you want an actual quota
+number (costs money, needs your AWS credentials, never run
+automatically). Full instructions: `docs/LOAD_TESTING.md`.
+
 ## Docker
 
 ```bash
@@ -141,15 +165,21 @@ scripts/
 policies/
   tenants.yaml     # tenant policy config (stands in for the DynamoDB table in the full plan)
   route_sets.yaml  # certified model route sets: primary + fallbacks (M4)
+loadtests/
+  fault_injection.py       # multi-call fault-injecting fakes (M6)
+  harness.py                # ASGI-direct concurrency test harness (M6)
+  bedrock/ tenant/ failure/ guardrails/   # test_scenario.py (automated) + locustfile.py (manual) per area
 docs/
-  ROADMAP.md        # milestone status
-  DESIGN-NOTES.md   # deviations from the plan and why
+  ROADMAP.md         # milestone status
+  DESIGN-NOTES.md    # deviations from the plan and why
+  LOAD_TESTING.md    # M6 scenarios: what they prove and how to run them
 ```
 
-## What's next (M6)
+## What's next (M7+)
 
-Load / chaos testing as an automated release gate: 429 storms (no retry
-amplification), tenant noisy-neighbor isolation under load, kill-switch
-propagation while traffic is in flight, and a policy update mid-load run
-— all against the local app with fault-injecting fakes, not real Bedrock
-— see `docs/ROADMAP.md`.
+V1 (M0–M6) is complete. The next milestones in `plan.md` are M7 (Async:
+SQS + workers + Step Functions + Batch for long-running workloads), M8
+(FinOps: real budget tracking, chargeback/showback, anomaly alerts), M9
+(Model Lifecycle: golden-dataset evaluation, certification, canary
+rollout), and M10 (Portal: self-service onboarding + approval
+workflows) — none started yet.
