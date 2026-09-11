@@ -131,17 +131,18 @@ automatically). Full instructions: `docs/LOAD_TESTING.md`.
 ## Docker
 
 ```bash
-docker build -t gateway-api:m0 .
+docker build -t gateway-api:latest .
 docker run --rm -p 8080:8080 \
   -e AWS_REGION=us-east-1 \
   -e AWS_ACCESS_KEY_ID=... -e AWS_SECRET_ACCESS_KEY=... \
-  gateway-api:m0
+  gateway-api:latest
 ```
 
 Intended to run as an ECS Fargate task (section 2 of the plan) behind an
 ALB + WAF, reaching Bedrock over a VPC PrivateLink endpoint — none of that
 infra is provisioned yet (`infra/` is a placeholder for the Terraform
-modules in M2+).
+modules in a later milestone). CI builds this image and smoke-tests
+`/healthz` on every push — see `.github/workflows/ci.yml`.
 
 ## Layout
 
