@@ -1,0 +1,42 @@
+# Tenant policy config (M2). Stands in for the DynamoDB-backed control
+# plane in plan section 8 -- see services/gateway/policy/store.py.
+#
+# Loaded once at startup by FilePolicyStore. To change a tenant's state
+# at runtime without restarting the gateway, use the admin API instead of
+# editing this file:
+#
+#   PUT /v1/admin/tenants/{tenant_id}/state   {"state": "SUSPENDED"}
+#
+# (requires a token with the ADMIN_REQUIRED_ROLE role, default
+# platform_admin) -- that takes effect immediately via push invalidation,
+# whereas a file edit only takes effect on the next process restart.
+
+tenants:
+  finance:
+    state: ACTIVE
+    models:
+      - anthropic.claude-3-5-sonnet-20241022-v2:0
+    rpm_limit: 300
+    guardrail_policy: finance-v1
+    route_set: finance-chat-v1
+    slo:
+      p95_latency_ms: 3000
+    policy_epoch: 1
+
+  search:
+    state: ACTIVE
+    models:
+      - anthropic.claude-3-5-sonnet-20241022-v2:0
+    rpm_limit: 120
+    guardrail_policy: standard-v1
+    route_set: search-chat-v1
+    slo:
+      p95_latency_ms: 5000
+    policy_epoch: 1
+
+  sandbox:
+    state: ACTIVE
+    models: []   # no restriction beyond the gateway default model
+    rpm_limit: 30
+    guardrail_policy: standard-v1
+    policy_epoch: 1

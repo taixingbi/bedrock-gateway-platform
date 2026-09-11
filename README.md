@@ -3,8 +3,10 @@
 Multi-tenant Enterprise LLM Gateway on AWS Bedrock. Building toward the
 V1 Enterprise MVP (M0–M6) in `docs/ROADMAP.md`. Currently: **M0**
 (`POST /v1/chat` → Bedrock Converse API → response, structured JSON
-telemetry) + **M1** (OIDC/JWT auth, tenant identity derived only from
-verified token claims, RBAC).
+telemetry), **M1** (OIDC/JWT auth, tenant identity derived only from
+verified token claims, RBAC), and **M2** (tenant policy plane: state/kill
+switch, policy epoch, push-invalidated + bounded-TTL policy cache,
+per-tenant rate limit, model allowlist, admin state API).
 
 ## Quickstart (local)
 
@@ -31,6 +33,8 @@ matching token with `scripts/generate_dev_token.py`:
 ```bash
 curl -s http://localhost:8080/healthz   # unauthenticated liveness probe
 
+# tenant_id must be one already configured in policies/tenants.yaml
+# (finance / search / sandbox out of the box) -- see M2 below.
 TOKEN=$(python scripts/generate_dev_token.py -q --tenant-id finance --roles developer)
 
 curl -s -X POST http://localhost:8080/v1/chat \
@@ -43,21 +47,38 @@ To verify against a real IdP instead, set `OIDC_JWKS_URL`, `OIDC_ISSUER`,
 and `OIDC_AUDIENCE` and the server switches to `JwksVerifier` automatically
 (see `services/gateway/auth/jwt_verifier.py`).
 
+Tenant policy lives in `policies/tenants.yaml` (state, model allowlist,
+rate limit, guardrail policy, route set — see M2 below). To flip a
+tenant's state at runtime (the kill switch) without restarting the
+server:
+
+```bash
+ADMIN_TOKEN=$(python scripts/generate_dev_token.py -q --tenant-id platform --roles platform_admin)
+
+curl -s -X PUT http://localhost:8080/v1/admin/tenants/finance/state \
+  -H "authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"state": "SUSPENDED"}'
+```
+
 ## Tests
 
 No real AWS calls, no network — a fake `ConverseClient` stands in for
-Bedrock (see `services/gateway/tests/fakes.py`), and tests mint their own
-locally-signed JWTs (see `services/gateway/tests/auth_fixtures.py`).
+Bedrock (see `services/gateway/tests/fakes.py`), tests mint their own
+locally-signed JWTs (see `services/gateway/tests/auth_fixtures.py`), and
+policy/rate-limit tests use a `FakeClock` (see
+`services/gateway/tests/fake_clock.py`) instead of real `time.sleep()`.
 
 ```bash
 python -m unittest discover -s services/gateway/tests -t .
 ```
 
-20 tests: M0's health/chat coverage (now sent with a valid dev token) plus
-M1 auth — missing/expired/wrong-audience/wrong-issuer/unknown-signing-key
-tokens all 401, missing required role 403, and a header-spoofing attempt
-(`X-Tenant-ID` on the request) proven to have no effect on the resolved
-tenant.
+46 tests: M0/M1 coverage plus M2 — kill switch blocks a
+SUSPENDED/EMERGENCY_BLOCK tenant before Bedrock is ever called, an
+unprovisioned tenant is rejected the same way, per-tenant rate limiting
+(and that tenant A's burst never throttles tenant B), the policy TTL
+bound holds even without a push, and an admin state change propagates to
+the very next request instead of waiting out the TTL.
 
 ## Docker
 
@@ -78,23 +99,26 @@ modules in M2+).
 
 ```
 services/gateway/
-  api/          # request/response schemas + route handlers
+  api/          # request/response schemas + route handlers (routes.py public, admin_routes.py admin)
   auth/         # JWT verification, identity, RBAC (M1)
+  policy/       # tenant policy model/store/cache, rate limiter (M2)
   inference/    # Bedrock Converse client (retry/backoff, no boto3 at import time)
   telemetry/    # structured JSON logging + request_id/duration_ms middleware
   tests/        # unit tests + fakes/fixtures (no AWS, no network needed)
   config.py     # env -> Settings (the only module that reads os.environ)
   main.py       # app factory / entrypoint
-  pipeline.py   # request pipeline stages (auth so far; policy/guardrails/cache/router land in M2-M4)
+  pipeline.py   # request pipeline stages (auth + policy so far; guardrails/cache/router land in M3-M4)
 scripts/
   generate_dev_token.py   # mint a local dev JWT for curl-testing
+policies/
+  tenants.yaml  # tenant policy config (stands in for the DynamoDB table in the full plan)
 docs/
   ROADMAP.md        # milestone status
   DESIGN-NOTES.md   # deviations from the plan and why
 ```
 
-## What's next (M2)
+## What's next (M3)
 
-Tenant policy plane: tenant state (`ACTIVE`/`SUSPENDED`/...) and kill
-switch, policy epoch, push invalidation + bounded-TTL policy cache, and a
-per-tenant rate limiter — see `docs/ROADMAP.md`.
+Input/output guardrails with fail-closed behavior: a guardrail
+timeout/error on a STRICT or STANDARD safety class must reject the
+request rather than let it reach the model — see `docs/ROADMAP.md`.
