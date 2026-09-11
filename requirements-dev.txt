@@ -1,0 +1,3 @@
+-r requirements.txt
+httpx>=0.28,<1.0   # required by starlette.testclient.TestClient
+pytest>=7.4,<9.0   # optional: tests are plain unittest and also run via `python -m unittest`
