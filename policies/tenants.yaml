@@ -15,7 +15,9 @@ tenants:
   finance:
     state: ACTIVE
     models:
-      - anthropic.claude-3-5-sonnet-20241022-v2:0
+      - us.amazon.nova-micro-v1:0
+      # more models coming later -- add their inference profile IDs here
+      # once confirmed accessible (aws bedrock list-inference-profiles)
     rpm_limit: 300
     guardrail_policy: finance-v1
     route_set: finance-chat-v1
@@ -26,7 +28,9 @@ tenants:
   search:
     state: ACTIVE
     models:
-      - anthropic.claude-3-5-sonnet-20241022-v2:0
+      - us.amazon.nova-micro-v1:0
+      # more models coming later -- add their inference profile IDs here
+      # once confirmed accessible (aws bedrock list-inference-profiles)
     rpm_limit: 120
     guardrail_policy: standard-v1
     route_set: search-chat-v1

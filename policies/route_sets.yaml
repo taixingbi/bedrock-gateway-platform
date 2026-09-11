@@ -6,14 +6,19 @@
 # "Certified" here just means "listed in this file" -- a real deployment
 # would gate entries behind the evaluation/certification pipeline in plan
 # section 21 (M9) before they're allowed here.
+#
+# Only Nova Micro is confirmed accessible on this account (646821141010,
+# us-east-1) right now, so there are no fallbacks configured yet -- a
+# route_set with an empty fallback list behaves like a direct call (see
+# routing/router.py). Add a fallback model's inference profile ID here
+# once it's confirmed with `aws bedrock list-inference-profiles` +
+# `aws bedrock-runtime converse` (see docs/LOAD_TESTING.md).
 
 route_sets:
   finance-chat-v1:
-    primary: anthropic.claude-3-5-sonnet-20241022-v2:0
-    fallbacks:
-      - anthropic.claude-3-haiku-20240307-v1:0
+    primary: us.amazon.nova-micro-v1:0
+    fallbacks: []
 
   search-chat-v1:
-    primary: anthropic.claude-3-5-sonnet-20241022-v2:0
-    fallbacks:
-      - anthropic.claude-3-haiku-20240307-v1:0
+    primary: us.amazon.nova-micro-v1:0
+    fallbacks: []
