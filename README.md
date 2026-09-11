@@ -19,7 +19,7 @@ rest of the platform in `plan.md` and are not started.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt   # -dev pulls in httpx for tests too
+poetry install                       # installs runtime and dev dependencies
 cp .env.example .env                  # adjust if needed; defaults are fine for local dev
 export $(grep -v '^#' .env | xargs)   # or use direnv/dotenv-cli
 

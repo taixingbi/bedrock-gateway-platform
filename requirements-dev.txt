@@ -1,4 +1,0 @@
--r requirements.txt
-httpx>=0.28,<1.0   # required by starlette.testclient.TestClient
-pytest>=7.4,<9.0   # optional: tests are plain unittest and also run via `python -m unittest`
-locust>=2.20,<3.0  # M6 load/chaos scenarios
