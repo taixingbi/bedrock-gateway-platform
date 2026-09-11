@@ -1,11 +1,10 @@
-# bedrock-gateway-platform — M0 walking skeleton
+# bedrock-gateway-platform
 
-Multi-tenant Enterprise LLM Gateway on AWS Bedrock. This is **M0** of the
-build roadmap (see `docs/ROADMAP.md`): the minimal end-to-end slice —
-`POST /v1/chat` → Bedrock Converse API → response, with structured JSON
-telemetry — that everything else (identity, policy plane, guardrails,
-caching, certified routing, streaming, async jobs, FinOps, model
-lifecycle, self-service portal) gets layered onto in later milestones.
+Multi-tenant Enterprise LLM Gateway on AWS Bedrock. Building toward the
+V1 Enterprise MVP (M0–M6) in `docs/ROADMAP.md`. Currently: **M0**
+(`POST /v1/chat` → Bedrock Converse API → response, structured JSON
+telemetry) + **M1** (OIDC/JWT auth, tenant identity derived only from
+verified token claims, RBAC).
 
 ## Quickstart (local)
 
@@ -24,27 +23,41 @@ python -m services.gateway.main
 # -> gateway-api listening on http://0.0.0.0:8080
 ```
 
+No real OIDC provider is configured by default (`OIDC_JWKS_URL` is
+empty), so the server verifies tokens against a local dev keypair it
+generates on first run (`.dev/jwt_keypair.json`, gitignored). Mint a
+matching token with `scripts/generate_dev_token.py`:
+
 ```bash
-curl -s http://localhost:8080/healthz
+curl -s http://localhost:8080/healthz   # unauthenticated liveness probe
+
+TOKEN=$(python scripts/generate_dev_token.py -q --tenant-id finance --roles developer)
 
 curl -s -X POST http://localhost:8080/v1/chat \
+  -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"messages":[{"role":"user","content":"Say hello in one sentence."}]}'
 ```
 
+To verify against a real IdP instead, set `OIDC_JWKS_URL`, `OIDC_ISSUER`,
+and `OIDC_AUDIENCE` and the server switches to `JwksVerifier` automatically
+(see `services/gateway/auth/jwt_verifier.py`).
+
 ## Tests
 
 No real AWS calls, no network — a fake `ConverseClient` stands in for
-Bedrock (see `services/gateway/tests/fakes.py`).
+Bedrock (see `services/gateway/tests/fakes.py`), and tests mint their own
+locally-signed JWTs (see `services/gateway/tests/auth_fixtures.py`).
 
 ```bash
 python -m unittest discover -s services/gateway/tests -t .
 ```
 
-11 tests: health check + request-id propagation, success path, model
-override / default, request validation (empty messages, last message must
-be `user`, invalid JSON), and upstream-error mapping (`ThrottlingException`
-→ 429, unrecognized error → 502).
+20 tests: M0's health/chat coverage (now sent with a valid dev token) plus
+M1 auth — missing/expired/wrong-audience/wrong-issuer/unknown-signing-key
+tokens all 401, missing required role 403, and a header-spoofing attempt
+(`X-Tenant-ID` on the request) proven to have no effect on the resolved
+tenant.
 
 ## Docker
 
@@ -66,18 +79,22 @@ modules in M2+).
 ```
 services/gateway/
   api/          # request/response schemas + route handlers
+  auth/         # JWT verification, identity, RBAC (M1)
   inference/    # Bedrock Converse client (retry/backoff, no boto3 at import time)
   telemetry/    # structured JSON logging + request_id/duration_ms middleware
-  tests/        # unit tests + fakes (no AWS needed)
+  tests/        # unit tests + fakes/fixtures (no AWS, no network needed)
   config.py     # env -> Settings (the only module that reads os.environ)
   main.py       # app factory / entrypoint
+  pipeline.py   # request pipeline stages (auth so far; policy/guardrails/cache/router land in M2-M4)
+scripts/
+  generate_dev_token.py   # mint a local dev JWT for curl-testing
 docs/
   ROADMAP.md        # milestone status
   DESIGN-NOTES.md   # deviations from the plan and why
 ```
 
-## What's next (M1)
+## What's next (M2)
 
-OIDC/JWT verification, tenant_id resolution from the authenticated
-identity (never a trusted header), and RBAC/ABAC — see `docs/ROADMAP.md`.
-# bedrock-gateway-platform
+Tenant policy plane: tenant state (`ACTIVE`/`SUSPENDED`/...) and kill
+switch, policy epoch, push invalidation + bounded-TTL policy cache, and a
+per-tenant rate limiter — see `docs/ROADMAP.md`.
