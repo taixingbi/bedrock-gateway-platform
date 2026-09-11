@@ -1,0 +1,19 @@
+# Certified route sets (M4, plan section 13). A tenant's fallback
+# candidates always come from here -- never an arbitrary model a client
+# might request. Referenced by tenant policy's `route_set` field (see
+# policies/tenants.yaml).
+#
+# "Certified" here just means "listed in this file" -- a real deployment
+# would gate entries behind the evaluation/certification pipeline in plan
+# section 21 (M9) before they're allowed here.
+
+route_sets:
+  finance-chat-v1:
+    primary: anthropic.claude-3-5-sonnet-20241022-v2:0
+    fallbacks:
+      - anthropic.claude-3-haiku-20240307-v1:0
+
+  search-chat-v1:
+    primary: anthropic.claude-3-5-sonnet-20241022-v2:0
+    fallbacks:
+      - anthropic.claude-3-haiku-20240307-v1:0

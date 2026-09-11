@@ -6,8 +6,10 @@ V1 Enterprise MVP (M0–M6) in `docs/ROADMAP.md`. Currently: **M0**
 telemetry), **M1** (OIDC/JWT auth, tenant identity derived only from
 verified token claims, RBAC), **M2** (tenant policy plane: state/kill
 switch, policy epoch, push-invalidated + bounded-TTL policy cache,
-per-tenant rate limit, model allowlist, admin state API), and **M3**
-(input/output guardrails with fail-closed behavior on timeout/error).
+per-tenant rate limit, model allowlist, admin state API), **M3**
+(input/output guardrails with fail-closed behavior on timeout/error), and
+**M4** (policy-aware response cache, per-model circuit breaker, certified
+fallback routing, SSE streaming with client-disconnect cancellation).
 
 ## Quickstart (local)
 
@@ -62,6 +64,15 @@ curl -s -X PUT http://localhost:8080/v1/admin/tenants/finance/state \
   -d '{"state": "SUSPENDED"}'
 ```
 
+For an SSE stream instead of a single JSON response, pass `"stream": true`:
+
+```bash
+curl -N -s -X POST http://localhost:8080/v1/chat \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"stream": true, "messages":[{"role":"user","content":"Count to five."}]}'
+```
+
 ## Tests
 
 No real AWS calls, no network — a fake `ConverseClient` stands in for
@@ -77,12 +88,13 @@ clock against a real deadline.
 python -m unittest discover -s services/gateway/tests -t .
 ```
 
-68 tests: M0/M1/M2 coverage plus M3 — PII/prompt-injection patterns are
-blocked before Bedrock is ever called, a blocked model response never
-reaches the client, a STRICT-safety-class tenant fails closed (503) when
-the guardrail backend is unavailable rather than letting the request
-through, and a LOW_RISK tenant that explicitly opted in degrades
-gracefully instead of failing.
+98 tests: M0-M3 coverage plus M4 — identical requests hit the cache
+(Bedrock called once) and a policy_epoch bump forces a miss; the circuit
+breaker opens after consecutive failures, transitions through
+HALF_OPEN, and a tripped primary causes traffic to fail over to (only) a
+certified fallback model, never an arbitrary one; SSE streaming delivers
+deltas and a client disconnect cancels the upstream generator
+(`generator.close()` reaches the fake, verified via `GeneratorExit`).
 
 ## Docker
 
@@ -107,24 +119,28 @@ services/gateway/
   auth/         # JWT verification, identity, RBAC (M1)
   policy/       # tenant policy model/store/cache, rate limiter (M2)
   guardrails/   # GuardrailClient seam, basic regex impl, fail-closed enforcement (M3)
-  inference/    # Bedrock Converse client (retry/backoff, no boto3 at import time)
+  cache/        # policy-aware response cache: key derivation + in-memory store (M4)
+  routing/      # circuit breaker + certified router with fallback (M4)
+  inference/    # Bedrock Converse client (retry/backoff + streaming, no boto3 at import time)
   telemetry/    # structured JSON logging + request_id/duration_ms middleware
   tests/        # unit tests + fakes/fixtures (no AWS, no network needed)
   config.py     # env -> Settings (the only module that reads os.environ)
   main.py       # app factory / entrypoint
-  pipeline.py   # request pipeline stages (auth/policy/guardrails so far; cache/router land in M4)
+  pipeline.py   # request pipeline stages (auth/policy/guardrails)
+  streaming.py  # SSE + client-disconnect cancellation (M4)
 scripts/
   generate_dev_token.py   # mint a local dev JWT for curl-testing
 policies/
-  tenants.yaml  # tenant policy config (stands in for the DynamoDB table in the full plan)
+  tenants.yaml     # tenant policy config (stands in for the DynamoDB table in the full plan)
+  route_sets.yaml  # certified model route sets: primary + fallbacks (M4)
 docs/
   ROADMAP.md        # milestone status
   DESIGN-NOTES.md   # deviations from the plan and why
 ```
 
-## What's next (M4)
+## What's next (M5)
 
-Gateway reliability: policy-aware response cache (keyed so a
-`policy_epoch` bump invalidates it automatically), a circuit breaker +
-certified fallback across a route set, and SSE streaming with
-client-disconnect cancellation — see `docs/ROADMAP.md`.
+Observability: OpenTelemetry spans over the full request record already
+being logged, cost-per-request from token usage, per-request SLO
+breach flags, and an audit pass confirming raw prompts/responses never
+leak into operational telemetry by default — see `docs/ROADMAP.md`.
