@@ -10,6 +10,8 @@ pyjwt[crypto]>=2.8,<3.0
 # M2 policy plane (tenant/route-set config files)
 pyyaml>=6.0,<7.0
 
-# M5 observability
+# M5 observability. Console span exporter needs nothing further; add
+# opentelemetry-exporter-otlp-proto-http yourself if you set
+# OTEL_EXPORTER_OTLP_ENDPOINT to export to a real collector.
 opentelemetry-api>=1.20,<2.0
 opentelemetry-sdk>=1.20,<2.0

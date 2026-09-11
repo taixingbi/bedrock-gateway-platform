@@ -7,9 +7,12 @@ telemetry), **M1** (OIDC/JWT auth, tenant identity derived only from
 verified token claims, RBAC), **M2** (tenant policy plane: state/kill
 switch, policy epoch, push-invalidated + bounded-TTL policy cache,
 per-tenant rate limit, model allowlist, admin state API), **M3**
-(input/output guardrails with fail-closed behavior on timeout/error), and
+(input/output guardrails with fail-closed behavior on timeout/error),
 **M4** (policy-aware response cache, per-model circuit breaker, certified
-fallback routing, SSE streaming with client-disconnect cancellation).
+fallback routing, SSE streaming with client-disconnect cancellation), and
+**M5** (OpenTelemetry tracing, per-request cost estimate and SLO breach
+flag, opt-in redacted debug capture kept separate from operational
+telemetry).
 
 ## Quickstart (local)
 
@@ -88,13 +91,18 @@ clock against a real deadline.
 python -m unittest discover -s services/gateway/tests -t .
 ```
 
-98 tests: M0-M3 coverage plus M4 — identical requests hit the cache
-(Bedrock called once) and a policy_epoch bump forces a miss; the circuit
-breaker opens after consecutive failures, transitions through
-HALF_OPEN, and a tripped primary causes traffic to fail over to (only) a
-certified fallback model, never an arbitrary one; SSE streaming delivers
-deltas and a client disconnect cancels the upstream generator
-(`generator.close()` reaches the fake, verified via `GeneratorExit`).
+113 tests: M0-M4 coverage plus M5 — a chat span carries the full
+telemetry attribute set (checked against an in-memory OTel exporter, not
+parsed out of console JSON), cost/SLO-breach calculations are correct,
+PII redaction round-trips through `DebugCaptureStore`, an opt-in tenant's
+interaction is actually captured while a default tenant's is not, and a
+grep-the-logs test proves a request's raw message content never appears
+in any operational JSON log line.
+
+Note: `python -m unittest` runs quietly by design -- `services/gateway/tests/__init__.py`
+installs a no-op global tracer before any test imports `create_app()`, so
+you won't see the console span exporter's output during the suite. Run
+the server for real (`python -m services.gateway.main`) to see it.
 
 ## Docker
 
@@ -122,7 +130,7 @@ services/gateway/
   cache/        # policy-aware response cache: key derivation + in-memory store (M4)
   routing/      # circuit breaker + certified router with fallback (M4)
   inference/    # Bedrock Converse client (retry/backoff + streaming, no boto3 at import time)
-  telemetry/    # structured JSON logging + request_id/duration_ms middleware
+  telemetry/    # structured JSON logging + middleware, OTel tracing, cost/SLO, debug capture (M5)
   tests/        # unit tests + fakes/fixtures (no AWS, no network needed)
   config.py     # env -> Settings (the only module that reads os.environ)
   main.py       # app factory / entrypoint
@@ -138,9 +146,10 @@ docs/
   DESIGN-NOTES.md   # deviations from the plan and why
 ```
 
-## What's next (M5)
+## What's next (M6)
 
-Observability: OpenTelemetry spans over the full request record already
-being logged, cost-per-request from token usage, per-request SLO
-breach flags, and an audit pass confirming raw prompts/responses never
-leak into operational telemetry by default — see `docs/ROADMAP.md`.
+Load / chaos testing as an automated release gate: 429 storms (no retry
+amplification), tenant noisy-neighbor isolation under load, kill-switch
+propagation while traffic is in flight, and a policy update mid-load run
+— all against the local app with fault-injecting fakes, not real Bedrock
+— see `docs/ROADMAP.md`.
