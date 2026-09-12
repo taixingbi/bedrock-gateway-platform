@@ -44,3 +44,13 @@ tenants:
     rpm_limit: 30
     guardrail_policy: standard-v1
     policy_epoch: 1
+
+  # Callers authenticated via the AWS_IAM/SigV4 path (see
+  # policies/iam_tenants.yaml, which maps an IAM principal ARN to this
+  # tenant_id) rather than a JWT.
+  team-a:
+    state: ACTIVE
+    models: []   # no restriction beyond the gateway default model
+    rpm_limit: 60
+    guardrail_policy: standard-v1
+    policy_epoch: 1
